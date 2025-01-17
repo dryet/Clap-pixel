@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "MP23ABS1TR")(type "KiCad")(uri "${KIPRJMOD}/local/Local_symbols/MP23ABS1TR.kicad_sym")(options "")(descr ""))
+)
