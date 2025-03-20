@@ -33,8 +33,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define LED_DEADZONE_VALUE 70
-#define LED_THRESHOLD 100
+#define LED_HIGH_THRESHOLD 70
+#define LED_LOW_THRESHOLD 25
+#define LED_BUFFER_TIME_MS 50
+#define LED_LOW_TIME_MS 220
+#define LED_RESET_TIME_MS 750
+#define LED_DEBOUNCE_TIME_MS 1000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -53,12 +57,21 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 
-uint16_t led_deadzone = 0;
+enum clap_state_e
+{
+  WAIT_FIRST,
+  BUFFER,
+  STAY_LOW,
+  WAIT_SECOND,
+  TURN_ON
+};
+enum clap_state_e clap_state;
+uint16_t cnt_timer = 0;
 
 uint32_t mic_raw_data;
 uint16_t mic_prev_data;
 
-uint16_t led_value = 8;
+uint16_t led_value = 0;
 
 /* USER CODE END PV */
 
@@ -86,9 +99,9 @@ static void MX_TIM1_Init(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
 
@@ -130,9 +143,14 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    hue += 2;
+    if (hue > 255)
+    {
+      hue = 0;
+    }
+
     neopixel_set_color_hsv(hue, 155, led_value);
-    hue += 5;
-    HAL_Delay(50);
+    HAL_Delay(100);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -141,21 +159,21 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
-  */
+   */
   HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV1;
@@ -172,9 +190,8 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
@@ -186,10 +203,10 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief ADC1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief ADC1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_ADC1_Init(void)
 {
 
@@ -204,7 +221,7 @@ static void MX_ADC1_Init(void)
   /* USER CODE END ADC1_Init 1 */
 
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-  */
+   */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV32;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
@@ -230,7 +247,7 @@ static void MX_ADC1_Init(void)
   }
 
   /** Configure Regular Channel
-  */
+   */
   sConfig.Channel = ADC_CHANNEL_7;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
@@ -241,14 +258,13 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
-
 }
 
 /**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM1_Init(void)
 {
 
@@ -313,14 +329,13 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
-
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief USART1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_USART1_UART_Init(void)
 {
 
@@ -361,12 +376,11 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
-
 }
 
 /**
-  * Enable DMA controller clock
-  */
+ * Enable DMA controller clock
+ */
 static void MX_DMA_Init(void)
 {
 
@@ -380,42 +394,53 @@ static void MX_DMA_Init(void)
   /* DMA1_Ch4_7_DMAMUX1_OVR_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Ch4_7_DMAMUX1_OVR_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Ch4_7_DMAMUX1_OVR_IRQn);
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
 
 void ADC_update_on_tick(void)
 {
-  if (led_deadzone)
-  {
+  cnt_timer--;
 
-    led_deadzone--;
-  }
-  else
+  if (!cnt_timer)
   {
-    if ((HAL_ADC_GetState(&hadc1) & HAL_ADC_STATE_REG_BUSY) == 0UL)
+    switch (clap_state)
     {
-      // neopixel_set_color_rgb(0, 0, 0); TODO remove comment
+    case BUFFER:
+      clap_state = STAY_LOW;
+      cnt_timer = LED_LOW_TIME_MS;
+      break;
+    case STAY_LOW:
+      clap_state = WAIT_SECOND;
+      cnt_timer = LED_RESET_TIME_MS;
+      break;
+    case WAIT_SECOND:
+      clap_state = WAIT_FIRST;
+      break;
+    case TURN_ON:
+      clap_state = WAIT_FIRST;
       HAL_ADC_Start_DMA(&hadc1, &mic_raw_data, 1);
+      break;
+    default:
+      break;
     }
   }
 }
@@ -445,19 +470,41 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
   assert_param(abs_value < 4096);
   printf("%u\n\r", abs_value);
 
-  if (abs_value > LED_THRESHOLD)
+  switch (clap_state)
   {
-    if (led_value == 8)
+  case WAIT_FIRST:
+    if (abs_value > LED_LOW_THRESHOLD)
     {
-      led_value = 32;
+      clap_state = BUFFER;
+      cnt_timer = LED_BUFFER_TIME_MS;
     }
-    else
+    break;
+  case STAY_LOW:
+    if (abs_value > LED_LOW_THRESHOLD)
     {
-      led_value = 8;
+      clap_state = WAIT_FIRST;
     }
-    led_deadzone = LED_DEADZONE_VALUE;
+    break;
+  case WAIT_SECOND:
+    if (abs_value > LED_LOW_THRESHOLD)
+    {
+      if (led_value)
+      {
+        led_value = 0;
+      }
+      else
+      {
+        led_value = 82;
+      }
+      clap_state = TURN_ON;
+      cnt_timer = LED_DEBOUNCE_TIME_MS;
+    }
+    break;
+  default:
+    break;
   }
-  else
+
+  if (clap_state != TURN_ON)
   {
     HAL_ADC_Start_DMA(&hadc1, &mic_raw_data, 1);
   }
@@ -472,9 +519,9 @@ PUTCHAR_PROTOTYPE
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -486,14 +533,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
