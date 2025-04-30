@@ -1,8 +1,0 @@
-{
-    "files.associations": {
-        "math.h": "c",
-        "neopixel.h": "c",
-        "main.h": "c",
-        "app_ble.h": "c"
-    }
-}

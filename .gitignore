@@ -1,7 +1,15 @@
-# For PCBs designed using KiCad: https://www.kicad.org/
-# Format documentation: https://kicad.org/help/file-formats/
+# STM32 CMake project files
+*/.vscode/
+*/build/
+*/CMakeFiles/
+*/cmake/
+*/.mxproject
+*/build.ninja
+*/compile_commands.json
+*/CMakeCache.txt
+*/cmake_install.cmake
 
-# Temporary files
+# Kicad files
 *.000
 *.bak
 *.bck
@@ -16,16 +24,9 @@ _autosave-*
 *-save.pro
 *-save.kicad_pcb
 fp-info-cache
-
-# Netlist files (exported from Eeschema)
 *.net
-
-# Autorouter files (exported from Pcbnew)
 *.dsn
 *.ses
-
-# Exported BOM files
 *.xml
 *.csv
-
 */gerber/
